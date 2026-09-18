@@ -863,9 +863,10 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
             ambient = _decode_ambient(temp_raw)
         else:
             _LOGGER.warning(
-                "MEATER %s: unexpected temperature payload length %d - discarding packet",
+                "MEATER %s: unexpected temperature payload length %d : %s - discarding packet",
                 self.address,
                 len(temp_raw),
+                temp_raw.hex()
             )
             return
         if not AMBIENT_TEMP_MIN_C <= ambient <= AMBIENT_TEMP_MAX_C:
