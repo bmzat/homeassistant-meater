@@ -20,6 +20,8 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    BooleanSelector,
+    BooleanSelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -280,7 +282,7 @@ class MeaterBLEOptionsFlow(OptionsFlow):
                     ),
                     vol.Required(
                         CONF_FORCE_KEEPALIVE_INTERVAL, default=current_force_keepalive
-                    ): bool,
+                    ): BooleanSelector(BooleanSelectorConfig()),
                     vol.Required(
                         CONF_RECONNECT_TIMEOUT, default=current_reconnect_timeout
                     ): NumberSelector(
