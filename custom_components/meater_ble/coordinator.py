@@ -286,7 +286,7 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
         address: str,
         keepalive_interval: float | None = None,
         force_keepalive_interval: bool | None = None,
-        reconnect_timeout: float | None = None,
+        reconnect_timeout: int | None = None,
     ) -> None:
         """Initialize.
 
@@ -297,8 +297,9 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
         ``force_keepalive_interval`` extends that shorter cadence to the original
         MEATER / MEATER+ too.
 
-        ``reconnect_timeout`` (seconds, from the options flow) overrides how long a reachable
-        probe may stream only zero-length packets before the coordinator forces a reconnect.
+        ``reconnect_timeout`` (whole seconds, from the options flow) overrides how long a
+        reachable probe may stream only zero-length packets before the coordinator forces a
+        reconnect.
         """
         super().__init__(
             hass,
@@ -317,11 +318,11 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
             if force_keepalive_interval is None
             else bool(force_keepalive_interval)
         )
-        self._zero_length_reconnect_timeout = float(DEFAULT_RECONNECT_TIMEOUT)
+        self._zero_length_reconnect_timeout = DEFAULT_RECONNECT_TIMEOUT
         if reconnect_timeout is not None:
             self._zero_length_reconnect_timeout = max(
-                float(RECONNECT_TIMEOUT_MIN),
-                min(float(RECONNECT_TIMEOUT_MAX), float(reconnect_timeout)),
+                RECONNECT_TIMEOUT_MIN,
+                min(RECONNECT_TIMEOUT_MAX, int(reconnect_timeout)),
             )
         self._client: BleakClientWithServiceCache | None = None
         self._connected = False
