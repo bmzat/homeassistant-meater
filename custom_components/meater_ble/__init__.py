@@ -8,7 +8,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_KEEPALIVE_INTERVAL, DOMAIN, PLATFORMS
+from .const import (
+    CONF_KEEPALIVE_INTERVAL,
+    CONF_RECONNECT_TIMEOUT,
+    DOMAIN,
+    PLATFORMS,
+)
 from .coordinator import MeaterBLECoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,6 +27,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass,
         address,
         keepalive_interval=entry.options.get(CONF_KEEPALIVE_INTERVAL),
+        reconnect_timeout=entry.options.get(CONF_RECONNECT_TIMEOUT),
     )
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
