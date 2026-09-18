@@ -858,7 +858,7 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
         if len(temp_raw) == 12:
             tip = _decode_tip_pro(temp_raw)
             ambient = _decode_ambient_pro(temp_raw)
-        elif len(temp_raw) == 6:
+        elif len(temp_raw) >= 6:
             tip = _decode_tip(temp_raw)
             ambient = _decode_ambient(temp_raw)
         else:
