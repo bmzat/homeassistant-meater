@@ -459,6 +459,7 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
     def _clear_zero_length_watchdog(self) -> None:
         """Clear the consecutive zero-length packet watchdog state."""
         self._zero_length_since = None
+        self._zero_length_recovering = False
 
     @callback
     def _device_generally_reachable(self) -> bool:
@@ -484,22 +485,20 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
             return
         if not self._device_generally_reachable():
             return
+        duration = now - self._zero_length_since
         self._zero_length_recovering = True
         self.hass.async_create_background_task(
-            self._async_recover_zero_length_stream(source),
+            self._async_recover_zero_length_stream(source, duration),
             name=f"meater_ble_zero_len_recover:{self.address}",
         )
 
-    async def _async_recover_zero_length_stream(self, source: str) -> None:
+    async def _async_recover_zero_length_stream(
+        self, source: str, duration: float
+    ) -> None:
         """Force a reconnect after a prolonged stream of zero-length packets."""
         try:
             if not self._connected or self._closing:
                 return
-            duration = (
-                self.hass.loop.time() - self._zero_length_since
-                if self._zero_length_since is not None
-                else _ZERO_LENGTH_RECONNECT_TIMEOUT
-            )
             _LOGGER.info(
                 "MEATER %s: only zero-length %s packets for over %.0fs while reachable - reconnecting",
                 self.address,
@@ -512,7 +511,6 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
             self.async_update_listeners()
             self._schedule_reconnect()
         finally:
-            self._zero_length_recovering = False
             self._clear_zero_length_watchdog()
 
     @callback
@@ -687,15 +685,19 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
         self._client = None
         self._stop_poll()
         self._clear_zero_length_watchdog()
+        expected = self._expected_disconnect
+        if expected:
+            # Expected transition processed; future drops should be treated normally.
+            self._expected_disconnect = False
         _LOGGER.debug(
             "MEATER %s disconnected (expected=%s)",
             self.address,
-            self._expected_disconnect,
+            expected,
         )
         # An unexpected drop: hold the last reading for a short grace window and keep
         # retrying with backoff. Recovery must not depend on a connectable advertisement
         # - through a proxy the probe is often heard only by a passive scanner (see #3).
-        if not self._expected_disconnect and not self._closing:
+        if not expected and not self._closing:
             self._start_grace_period()
             self._schedule_reconnect()
         # Reflect the state change. During the grace window ``available`` stays True, so
@@ -883,10 +885,6 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
 
         Shared by the battery notification callback and the poll's battery read.
         """
-        if len(raw) == 0:
-            self._on_zero_length_packet("battery")
-        else:
-            self._clear_zero_length_watchdog()
         # Any traffic from the probe proves the link is alive - feed the liveness clock.
         self._last_data_time = self.hass.loop.time()
         battery = self._decode_battery_bytes(raw)
