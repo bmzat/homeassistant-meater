@@ -9,6 +9,7 @@ from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_FORCE_KEEPALIVE_INTERVAL,
     CONF_KEEPALIVE_INTERVAL,
     CONF_RECONNECT_TIMEOUT,
     DOMAIN,
@@ -27,6 +28,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass,
         address,
         keepalive_interval=entry.options.get(CONF_KEEPALIVE_INTERVAL),
+        force_keepalive_interval=entry.options.get(CONF_FORCE_KEEPALIVE_INTERVAL),
         reconnect_timeout=entry.options.get(CONF_RECONNECT_TIMEOUT),
     )
 

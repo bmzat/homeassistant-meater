@@ -26,8 +26,10 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_FORCE_KEEPALIVE_INTERVAL,
     CONF_KEEPALIVE_INTERVAL,
     CONF_RECONNECT_TIMEOUT,
+    DEFAULT_FORCE_KEEPALIVE_INTERVAL,
     DEFAULT_KEEPALIVE_INTERVAL,
     DEFAULT_RECONNECT_TIMEOUT,
     DOMAIN,
@@ -133,7 +135,7 @@ class MeaterBLEConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> MeaterBLEOptionsFlow:
-        """Return the options flow for tuning the keepalive interval."""
+        """Return the options flow for tuning keepalive and reconnect behavior."""
         return MeaterBLEOptionsFlow()
 
     def __init__(self) -> None:
@@ -240,7 +242,8 @@ class MeaterBLEOptionsFlow(OptionsFlow):
 
     A lower interval reads the probe more often to keep its BLE link engaged, which can hold
     a 2 Plus / Pro that otherwise drops after a few minutes on a marginal proxy, at the cost
-    of more Bluetooth traffic. The reconnect timeout controls how long a reachable probe may
+    of more Bluetooth traffic. The same shorter cadence can optionally be forced for the
+    original MEATER / MEATER+. The reconnect timeout controls how long a reachable probe may
     keep returning zero-length packets before the integration forces a reconnect.
     """
 
@@ -253,6 +256,9 @@ class MeaterBLEOptionsFlow(OptionsFlow):
 
         current_keepalive = self.config_entry.options.get(
             CONF_KEEPALIVE_INTERVAL, DEFAULT_KEEPALIVE_INTERVAL
+        )
+        current_force_keepalive = self.config_entry.options.get(
+            CONF_FORCE_KEEPALIVE_INTERVAL, DEFAULT_FORCE_KEEPALIVE_INTERVAL
         )
         current_reconnect_timeout = self.config_entry.options.get(
             CONF_RECONNECT_TIMEOUT, DEFAULT_RECONNECT_TIMEOUT
@@ -272,6 +278,9 @@ class MeaterBLEOptionsFlow(OptionsFlow):
                             unit_of_measurement="s",
                         )
                     ),
+                    vol.Required(
+                        CONF_FORCE_KEEPALIVE_INTERVAL, default=current_force_keepalive
+                    ): bool,
                     vol.Required(
                         CONF_RECONNECT_TIMEOUT, default=current_reconnect_timeout
                     ): NumberSelector(

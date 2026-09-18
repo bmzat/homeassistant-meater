@@ -24,10 +24,14 @@
       "init": {
         "title": "MEATER BLE options",
         "data": {
-          "keepalive_interval": "Keepalive read interval (seconds)"
+          "keepalive_interval": "Keepalive read interval (seconds)",
+          "force_keepalive_interval": "Force the shorter keepalive interval for MEATER / MEATER+",
+          "reconnect_timeout": "Reconnect timeout for zero-length packets (seconds)"
         },
         "data_description": {
-          "keepalive_interval": "How often a MEATER 2 Plus / Pro is actively read to keep its Bluetooth link alive. A lower value can hold a probe that keeps dropping after a few minutes, at the cost of more Bluetooth traffic. Default 8. No effect on the original MEATER / MEATER+."
+          "keepalive_interval": "How often a MEATER 2 Plus / Pro is actively read to keep its Bluetooth link alive. A lower value can hold a probe that keeps dropping after a few minutes, at the cost of more Bluetooth traffic. Default 8.",
+          "force_keepalive_interval": "Apply the shorter keepalive interval above to the original MEATER / MEATER+ too, instead of using the default 20-second poll.",
+          "reconnect_timeout": "How long a reachable probe may keep returning only zero-length packets before the integration tears the Bluetooth link down and reconnects. Default 120."
         }
       }
     }

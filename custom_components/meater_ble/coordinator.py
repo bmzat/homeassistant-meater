@@ -92,10 +92,14 @@ from .const import (
     CHAR_BATTERY,
     CHAR_TEMPERATURE,
     COOK_REST_DELTA,
+    DEFAULT_FORCE_KEEPALIVE_INTERVAL,
     DEFAULT_KEEPALIVE_INTERVAL,
+    DEFAULT_RECONNECT_TIMEOUT,
     DOMAIN,
     KEEPALIVE_INTERVAL_MAX,
     KEEPALIVE_INTERVAL_MIN,
+    RECONNECT_TIMEOUT_MAX,
+    RECONNECT_TIMEOUT_MIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -160,11 +164,6 @@ _STALL_TIMEOUT = 45.0
 # Ceiling on how long to wait for a deliberate disconnect to complete. A half-open link
 # can make client.disconnect() hang, so recovery must not block on it.
 _DISCONNECT_TIMEOUT = 10.0
-
-# If we keep receiving only zero-length packets for this long while the probe is
-# otherwise reachable, force a reconnect. This catches a stuck link state where
-# traffic still arrives often enough to keep the generic stall watchdog from firing.
-_ZERO_LENGTH_RECONNECT_TIMEOUT = 120.0
 
 # Minimum change (dBm) before the diagnostic signal-strength sensor updates. Real BLE RSSI
 # jitters a few dBm between consecutive advertisements from ambient noise alone, so an
@@ -286,12 +285,20 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
         hass: HomeAssistant,
         address: str,
         keepalive_interval: float | None = None,
+        force_keepalive_interval: bool | None = None,
+        reconnect_timeout: float | None = None,
     ) -> None:
         """Initialize.
 
         ``keepalive_interval`` (seconds, from the options flow) overrides the Pro / MEATER 2
         Plus active-read cadence; ``None`` uses the built-in default. Clamped to the allowed
         range so a bad option can neither hammer the link nor stall the watchdog.
+
+        ``force_keepalive_interval`` extends that shorter cadence to the original
+        MEATER / MEATER+ too.
+
+        ``reconnect_timeout`` (seconds, from the options flow) overrides how long a reachable
+        probe may stream only zero-length packets before the coordinator forces a reconnect.
         """
         super().__init__(
             hass,
@@ -304,6 +311,17 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
             self._keepalive_interval = max(
                 float(KEEPALIVE_INTERVAL_MIN),
                 min(float(KEEPALIVE_INTERVAL_MAX), float(keepalive_interval)),
+            )
+        self._force_keepalive_interval = (
+            DEFAULT_FORCE_KEEPALIVE_INTERVAL
+            if force_keepalive_interval is None
+            else bool(force_keepalive_interval)
+        )
+        self._zero_length_reconnect_timeout = float(DEFAULT_RECONNECT_TIMEOUT)
+        if reconnect_timeout is not None:
+            self._zero_length_reconnect_timeout = max(
+                float(RECONNECT_TIMEOUT_MIN),
+                min(float(RECONNECT_TIMEOUT_MAX), float(reconnect_timeout)),
             )
         self._client: BleakClientWithServiceCache | None = None
         self._connected = False
@@ -479,7 +497,7 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
         if self._zero_length_since is None:
             self._zero_length_since = now
             return
-        if now - self._zero_length_since < _ZERO_LENGTH_RECONNECT_TIMEOUT:
+        if now - self._zero_length_since < self._zero_length_reconnect_timeout:
             return
         if self._zero_length_recovering or not self._connected or self._connecting:
             return
@@ -732,12 +750,17 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
 
         The Pro / MEATER 2 Plus is polled on a shorter cadence than the original, because
         it drops an idle link far sooner on the same proxy (see ``_READ_POLL_INTERVAL_PRO``);
-        that cadence is user-tunable via ``self._keepalive_interval`` (options flow).
+        that cadence is user-tunable via ``self._keepalive_interval`` and can optionally be
+        forced for the original MEATER / MEATER+ too.
         """
         self._stop_poll()
         self._poll_tick = 0
         self._last_data_time = self.hass.loop.time()
-        interval = self._keepalive_interval if self._is_pro else _READ_POLL_INTERVAL
+        interval = (
+            self._keepalive_interval
+            if self._is_pro or self._force_keepalive_interval
+            else _READ_POLL_INTERVAL
+        )
         self._cancel_poll = async_track_time_interval(
             self.hass,
             self._async_poll,
