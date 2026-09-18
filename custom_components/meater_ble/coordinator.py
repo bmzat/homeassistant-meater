@@ -840,7 +840,14 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
                 "MEATER Pro %s battery raw (5 bytes): %s", self.address, raw.hex("-")
             )
             return _decode_battery_pro(raw)
-        return _decode_battery(raw)
+        if len(raw) == 2:
+            return _decode_battery(raw)
+        _LOGGER.warning(
+            "MEATER %s: unexpected battery payload length %d - discarding packet",
+            self.address,
+            len(raw),
+        )
+        return None
 
     def _process(self, temp_raw: bytes, batt_raw: bytes | None) -> None:
         """Decode raw bytes and push an update to all listeners."""
@@ -851,9 +858,16 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
         if len(temp_raw) == 12:
             tip = _decode_tip_pro(temp_raw)
             ambient = _decode_ambient_pro(temp_raw)
-        else:
+        elif len(temp_raw) == 6:
             tip = _decode_tip(temp_raw)
             ambient = _decode_ambient(temp_raw)
+        else:
+            _LOGGER.warning(
+                "MEATER %s: unexpected temperature payload length %d - discarding packet",
+                self.address,
+                len(temp_raw),
+            )
+            return
         if not AMBIENT_TEMP_MIN_C <= ambient <= AMBIENT_TEMP_MAX_C:
             # Corrupt BLE packet - keep the last good value rather than spiking.
             _LOGGER.warning(
