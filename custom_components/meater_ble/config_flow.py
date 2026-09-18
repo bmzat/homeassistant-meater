@@ -20,14 +20,20 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    BooleanSelector,
+    BooleanSelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
 )
 
 from .const import (
+    CONF_FORCE_KEEPALIVE_INTERVAL,
     CONF_KEEPALIVE_INTERVAL,
+    CONF_RECONNECT_TIMEOUT,
+    DEFAULT_FORCE_KEEPALIVE_INTERVAL,
     DEFAULT_KEEPALIVE_INTERVAL,
+    DEFAULT_RECONNECT_TIMEOUT,
     DOMAIN,
     KEEPALIVE_INTERVAL_MAX,
     KEEPALIVE_INTERVAL_MIN,
@@ -38,6 +44,8 @@ from .const import (
     MEATER_PRO_SERVICE_UUID,
     MEATER_SERVICE_UUID,
     MODEL,
+    RECONNECT_TIMEOUT_MAX,
+    RECONNECT_TIMEOUT_MIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -129,7 +137,7 @@ class MeaterBLEConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> MeaterBLEOptionsFlow:
-        """Return the options flow for tuning the keepalive interval."""
+        """Return the options flow for tuning keepalive and reconnect behavior."""
         return MeaterBLEOptionsFlow()
 
     def __init__(self) -> None:
@@ -232,33 +240,55 @@ class MeaterBLEConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class MeaterBLEOptionsFlow(OptionsFlow):
-    """Options flow: tune the Pro / MEATER 2 Plus keepalive read interval.
+    """Options flow: tune the keepalive interval and zero-length reconnect timeout.
 
     A lower interval reads the probe more often to keep its BLE link engaged, which can hold
     a 2 Plus / Pro that otherwise drops after a few minutes on a marginal proxy, at the cost
-    of more Bluetooth traffic. It has no effect on the original MEATER / MEATER+.
+    of more Bluetooth traffic. The same shorter cadence can optionally be forced for the
+    original MEATER / MEATER+. The reconnect timeout controls how long a reachable probe may
+    keep returning zero-length packets before the integration forces a reconnect.
     """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage the keepalive interval option."""
+        """Manage the keepalive interval and reconnect-timeout options."""
         if user_input is not None:
             return self.async_create_entry(data=user_input)
 
-        current = self.config_entry.options.get(
+        current_keepalive = self.config_entry.options.get(
             CONF_KEEPALIVE_INTERVAL, DEFAULT_KEEPALIVE_INTERVAL
+        )
+        current_force_keepalive = self.config_entry.options.get(
+            CONF_FORCE_KEEPALIVE_INTERVAL, DEFAULT_FORCE_KEEPALIVE_INTERVAL
+        )
+        current_reconnect_timeout = self.config_entry.options.get(
+            CONF_RECONNECT_TIMEOUT, DEFAULT_RECONNECT_TIMEOUT
         )
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_KEEPALIVE_INTERVAL, default=current
+                        CONF_KEEPALIVE_INTERVAL, default=current_keepalive
                     ): NumberSelector(
                         NumberSelectorConfig(
                             min=KEEPALIVE_INTERVAL_MIN,
                             max=KEEPALIVE_INTERVAL_MAX,
+                            step=1,
+                            mode=NumberSelectorMode.BOX,
+                            unit_of_measurement="s",
+                        )
+                    ),
+                    vol.Required(
+                        CONF_FORCE_KEEPALIVE_INTERVAL, default=current_force_keepalive
+                    ): BooleanSelector(BooleanSelectorConfig()),
+                    vol.Required(
+                        CONF_RECONNECT_TIMEOUT, default=current_reconnect_timeout
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=RECONNECT_TIMEOUT_MIN,
+                            max=RECONNECT_TIMEOUT_MAX,
                             step=1,
                             mode=NumberSelectorMode.BOX,
                             unit_of_measurement="s",

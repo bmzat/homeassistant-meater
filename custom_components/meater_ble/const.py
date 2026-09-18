@@ -19,6 +19,19 @@ DEFAULT_KEEPALIVE_INTERVAL = 8
 KEEPALIVE_INTERVAL_MIN = 3
 KEEPALIVE_INTERVAL_MAX = 60
 
+# Options-flow key: force the shorter keepalive interval to apply to the original
+# MEATER / MEATER+ too, instead of only the Pro / MEATER 2 Plus.
+CONF_FORCE_KEEPALIVE_INTERVAL = "force_keepalive_interval"
+DEFAULT_FORCE_KEEPALIVE_INTERVAL = False
+
+# Options-flow key: how long a reachable probe may keep sending only zero-length packets
+# before the coordinator tears the link down and reconnects. Unset uses
+# DEFAULT_RECONNECT_TIMEOUT.
+CONF_RECONNECT_TIMEOUT = "reconnect_timeout"
+DEFAULT_RECONNECT_TIMEOUT = 120
+RECONNECT_TIMEOUT_MIN = 30
+RECONNECT_TIMEOUT_MAX = 600
+
 # Bluetooth SIG company identifier assigned to Apption Labs Inc. (maker of MEATER,
 # now owned by Traeger) - 0x037B. This is broadcast in the manufacturer-specific data
 # (AD type 0xFF) of the PRIMARY advertising packet, so it is present on every advertisement
