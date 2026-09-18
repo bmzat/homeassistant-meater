@@ -161,6 +161,11 @@ _STALL_TIMEOUT = 45.0
 # can make client.disconnect() hang, so recovery must not block on it.
 _DISCONNECT_TIMEOUT = 10.0
 
+# If we keep receiving only zero-length packets for this long while the probe is
+# otherwise reachable, force a reconnect. This catches a stuck link state where
+# traffic still arrives often enough to keep the generic stall watchdog from firing.
+_ZERO_LENGTH_RECONNECT_TIMEOUT = 120.0
+
 # Minimum change (dBm) before the diagnostic signal-strength sensor updates. Real BLE RSSI
 # jitters a few dBm between consecutive advertisements from ambient noise alone, so an
 # exact-match dedup would still push a new state on nearly every advertisement while
@@ -316,6 +321,8 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
         self._polling = False
         self._poll_tick = 0
         self._last_data_time = 0.0
+        self._zero_length_since: float | None = None
+        self._zero_length_recovering = False
         # Probe family, derived from the temperature payload width on each connect
         # (12 bytes = Pro / MEATER 2 Plus, otherwise original MEATER / MEATER+). Only
         # meaningful while connected; re-derived on every successful connect.
@@ -447,6 +454,64 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
     def _reset_reconnect_backoff(self) -> None:
         """Return the reconnect backoff to its floor (probe reappeared / just connected)."""
         self._reconnect_backoff = _RECONNECT_COOLDOWN
+
+    @callback
+    def _clear_zero_length_watchdog(self) -> None:
+        """Clear the consecutive zero-length packet watchdog state."""
+        self._zero_length_since = None
+        self._zero_length_recovering = False
+
+    @callback
+    def _device_generally_reachable(self) -> bool:
+        """Whether the probe appears reachable enough for an active reconnect attempt."""
+        if self._connected:
+            return True
+        if self._last_advert_time <= 0:
+            return False
+        return self.hass.loop.time() - self._last_advert_time <= _ADVERT_SILENCE_RESET
+
+    @callback
+    def _on_zero_length_packet(self, source: str) -> None:
+        """Track consecutive zero-length payloads and trigger reconnect if prolonged."""
+        if self._closing:
+            return
+        now = self.hass.loop.time()
+        if self._zero_length_since is None:
+            self._zero_length_since = now
+            return
+        if now - self._zero_length_since < _ZERO_LENGTH_RECONNECT_TIMEOUT:
+            return
+        if self._zero_length_recovering or not self._connected or self._connecting:
+            return
+        if not self._device_generally_reachable():
+            return
+        duration = now - self._zero_length_since
+        self._zero_length_recovering = True
+        self.hass.async_create_background_task(
+            self._async_recover_zero_length_stream(source, duration),
+            name=f"meater_ble_zero_len_recover:{self.address}",
+        )
+
+    async def _async_recover_zero_length_stream(
+        self, source: str, duration: float
+    ) -> None:
+        """Force a reconnect after a prolonged stream of zero-length packets."""
+        try:
+            if not self._connected or self._closing:
+                return
+            _LOGGER.info(
+                "MEATER %s: only zero-length %s packets for over %.0fs while reachable - reconnecting",
+                self.address,
+                source,
+                duration,
+            )
+            self._expected_disconnect = True
+            self._start_grace_period()
+            await self._async_disconnect()
+            self.async_update_listeners()
+            self._schedule_reconnect()
+        finally:
+            self._clear_zero_length_watchdog()
 
     @callback
     def _schedule_reconnect(self) -> None:
@@ -597,6 +662,7 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
             self._reset_reconnect_backoff()
             self._no_path_count = 0
             self._clear_grace()
+            self._clear_zero_length_watchdog()
             _LOGGER.info("Connected to MEATER %s", self.address)
             # First reading populates entities and clears the unavailable state, and
             # seeds the liveness clock before the poll loop starts.
@@ -618,15 +684,20 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
         self._connected = False
         self._client = None
         self._stop_poll()
+        self._clear_zero_length_watchdog()
+        expected = self._expected_disconnect
+        if expected:
+            # Expected transition processed; future drops should be treated normally.
+            self._expected_disconnect = False
         _LOGGER.debug(
             "MEATER %s disconnected (expected=%s)",
             self.address,
-            self._expected_disconnect,
+            expected,
         )
         # An unexpected drop: hold the last reading for a short grace window and keep
         # retrying with backoff. Recovery must not depend on a connectable advertisement
         # - through a proxy the probe is often heard only by a passive scanner (see #3).
-        if not self._expected_disconnect and not self._closing:
+        if not expected and not self._closing:
             self._start_grace_period()
             self._schedule_reconnect()
         # Reflect the state change. During the grace window ``available`` stays True, so
@@ -644,6 +715,7 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
         client = self._client
         self._client = None
         self._connected = False
+        self._clear_zero_length_watchdog()
         if client is not None and client.is_connected:
             try:
                 await asyncio.wait_for(client.disconnect(), timeout=_DISCONNECT_TIMEOUT)
@@ -851,6 +923,10 @@ class MeaterBLECoordinator(DataUpdateCoordinator[MeaterData]):
 
     def _process(self, temp_raw: bytes, batt_raw: bytes | None) -> None:
         """Decode raw bytes and push an update to all listeners."""
+        if len(temp_raw) == 0:
+            self._on_zero_length_packet("temperature")
+        else:
+            self._clear_zero_length_watchdog()
         # Any packet (even a corrupt one) proves the link is alive - feed the liveness
         # clock before the plausibility check so a run of bad packets does not look like
         # a dead link.
